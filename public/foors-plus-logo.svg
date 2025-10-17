@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <!-- Gradient for active routing -->
+    <linearGradient id="routingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Gradient for emergency/alert -->
+    <linearGradient id="alertGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EF4444;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Glow filter for sink node -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark background circle -->
+  <circle cx="128" cy="128" r="120" fill="#1e293b" opacity="0.95"/>
+
+  <!-- Mesh network connections (representing BLE mesh) -->
+  <!-- Outer ring connections -->
+  <line x1="128" y1="48" x2="188" y2="78" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="188" y1="78" x2="208" y2="128" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="208" y1="128" x2="188" y2="178" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="188" y1="178" x2="128" y2="208" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="128" y1="208" x2="68" y2="178" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="68" y1="178" x2="48" y2="128" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="48" y1="128" x2="68" y2="78" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+  <line x1="68" y1="78" x2="128" y2="48" stroke="url(#routingGradient)" stroke-width="3" opacity="0.6"/>
+
+  <!-- Inner connections to center (routing paths) -->
+  <line x1="128" y1="48" x2="128" y2="128" stroke="url(#routingGradient)" stroke-width="4" opacity="0.8"/>
+  <line x1="208" y1="128" x2="128" y2="128" stroke="url(#routingGradient)" stroke-width="4" opacity="0.8"/>
+  <line x1="188" y1="178" x2="128" y2="128" stroke="url(#routingGradient)" stroke-width="4" opacity="0.8"/>
+  <line x1="68" y1="78" x2="128" y2="128" stroke="url(#routingGradient)" stroke-width="4" opacity="0.8"/>
+
+  <!-- Mesh nodes (outer ring - source nodes) -->
+  <circle cx="128" cy="48" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="188" cy="78" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="208" cy="128" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="188" cy="178" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="128" cy="208" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="68" cy="178" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="48" cy="128" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+  <circle cx="68" cy="78" r="10" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+
+  <!-- Center sink node (target/destination) with glow -->
+  <circle cx="128" cy="128" r="16" fill="url(#alertGradient)" stroke="#DC2626" stroke-width="3" filter="url(#glow)"/>
+
+  <!-- Plus symbol overlay (representing FOORS+) -->
+  <g opacity="0.9">
+    <!-- Horizontal bar -->
+    <rect x="98" y="118" width="60" height="20" rx="4" fill="#FFFFFF"/>
+    <!-- Vertical bar -->
+    <rect x="118" y="98" width="20" height="60" rx="4" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Small emergency beacon pulses -->
+  <circle cx="128" cy="128" r="20" fill="none" stroke="url(#alertGradient)" stroke-width="2" opacity="0.3">
+    <animate attributeName="r" from="20" to="40" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" from="0.3" to="0" dur="2s" repeatCount="indefinite"/>
+  </circle>
+</svg>

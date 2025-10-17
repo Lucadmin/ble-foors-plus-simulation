@@ -1,0 +1,804 @@
+import type { Node } from '../types/Node';
+import type { Message } from '../types/Message';
+import { createNode } from '../utils/nodeUtils';
+import { v4 as uuidv4 } from 'uuid';
+import { DEFAULT_MESSAGE_CONFIG } from '../types/Message';
+import { DEFAULT_NODE_CONFIG } from '../types/Node';
+
+/**
+ * SimulationModel - Manages the state and logic of the simulation
+ * This is the "Model" in MVC - handles all data and business logic
+ */
+export class SimulationModel {
+  private nodes: Node[] = [];
+  private messages: Message[] = [];
+  private listeners: Set<() => void> = new Set();
+  private connectionRadius: number = 2.0; // Global default
+  private inactiveRoutingTimeout: number = 5 * 60 * 1000; // 5 minutes default (configurable)
+  
+  // Auto-generation state
+  private isAutoGenerating: boolean = false;
+  private triageGenerationInterval: number = 3000; // milliseconds (default 3 seconds)
+  private lastTriageGeneration: number = 0;
+
+  constructor() {
+    this.nodes = [];
+    this.messages = [];
+  }
+
+  /**
+   * Set the inactive routing table timeout duration (in milliseconds)
+   */
+  setInactiveRoutingTimeout(timeout: number): void {
+    this.inactiveRoutingTimeout = timeout;
+    this.notifyListeners();
+  }
+
+  /**
+   * Get the current inactive routing table timeout duration (in milliseconds)
+   */
+  getInactiveRoutingTimeout(): number {
+    return this.inactiveRoutingTimeout;
+  }
+
+  /**
+   * Start automatic triage generation
+   */
+  startAutoGeneration(): void {
+    this.isAutoGenerating = true;
+    this.lastTriageGeneration = Date.now();
+    console.log('[Simulation] Auto-generation started');
+    this.notifyListeners();
+  }
+
+  /**
+   * Stop automatic triage generation
+   */
+  stopAutoGeneration(): void {
+    this.isAutoGenerating = false;
+    console.log('[Simulation] Auto-generation stopped');
+    this.notifyListeners();
+  }
+
+  /**
+   * Check if auto-generation is active
+   */
+  isAutoGenerationActive(): boolean {
+    return this.isAutoGenerating;
+  }
+
+  /**
+   * Set the triage generation interval (in milliseconds)
+   */
+  setTriageGenerationInterval(interval: number): void {
+    this.triageGenerationInterval = interval;
+    this.notifyListeners();
+  }
+
+  /**
+   * Get the current triage generation interval (in milliseconds)
+   */
+  getTriageGenerationInterval(): number {
+    return this.triageGenerationInterval;
+  }
+
+  /**
+   * Reset simulation - remove all nodes and messages
+   */
+  reset(): void {
+    this.nodes = [];
+    this.messages = [];
+    this.isAutoGenerating = false;
+    console.log('[Simulation] Reset - all nodes and messages cleared');
+    this.notifyListeners();
+  }
+
+  /**
+   * Set the global connection radius
+   */
+  setConnectionRadius(radius: number): void {
+    this.connectionRadius = radius;
+    // Update all existing nodes
+    this.nodes.forEach(node => {
+      node.connectionRadius = radius;
+    });
+    this.updateConnections();
+    this.notifyListeners();
+  }
+
+  /**
+   * Get the current connection radius
+   */
+  getConnectionRadius(): number {
+    return this.connectionRadius;
+  }
+
+  /**
+   * Subscribe to model changes
+   */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Notify all listeners of changes
+   */
+  private notifyListeners(): void {
+    this.listeners.forEach(listener => listener());
+  }
+
+  /**
+   * Get all nodes
+   */
+  getNodes(): Node[] {
+    return [...this.nodes];
+  }
+
+  /**
+   * Get a specific node by ID
+   */
+  getNode(id: string): Node | undefined {
+    return this.nodes.find(node => node.id === id);
+  }
+
+  /**
+   * Add a new node at the specified position
+   */
+  addNode(x: number, y: number, type: import('../types/Node').NodeType = 'source'): Node {
+    const node = createNode(x, y, type, this.connectionRadius);
+    this.nodes.push(node);
+    this.updateConnections();
+    this.notifyListeners();
+    return node;
+  }
+
+  /**
+   * Remove a node by ID
+   */
+  removeNode(id: string): void {
+    // Remove connections to this node from other nodes
+    this.nodes.forEach(node => {
+      node.connections.delete(id);
+    });
+    this.nodes = this.nodes.filter(node => node.id !== id);
+    this.notifyListeners();
+  }
+
+  /**
+   * Toggle node type between source and sink
+   */
+  toggleNodeType(id: string): void {
+    const node = this.nodes.find(n => n.id === id);
+    if (node) {
+      node.type = node.type === 'source' ? 'sink' : 'source';
+      // Update color based on type
+      node.color = node.type === 'sink' 
+        ? DEFAULT_NODE_CONFIG.sinkColor 
+        : DEFAULT_NODE_CONFIG.sourceColor;
+      this.notifyListeners();
+    }
+  }
+
+  /**
+   * Update a node's position
+   */
+  updateNodePosition(id: string, x: number, y: number): void {
+    const node = this.nodes.find(n => n.id === id);
+    if (node) {
+      node.position.x = x;
+      node.position.y = y;
+      this.updateConnections();
+      this.notifyListeners();
+    }
+  }
+
+  /**
+   * Update a node's velocity
+   */
+  updateNodeVelocity(id: string, vx: number, vy: number): void {
+    const node = this.nodes.find(n => n.id === id);
+    if (node) {
+      node.velocity.x = vx;
+      node.velocity.y = vy;
+      this.notifyListeners();
+    }
+  }
+
+  /**
+   * Clear all nodes
+   */
+  clearNodes(): void {
+    this.nodes = [];
+    this.notifyListeners();
+  }
+
+  /**
+   * Update connections based on node positions and connection radii
+   */
+  private updateConnections(): void {
+    // Store previous connection states to detect reconnections
+    const previousConnectionStates = new Map<string, boolean>();
+    this.nodes.forEach(node => {
+      previousConnectionStates.set(node.id, node.connections.size > 0);
+    });
+
+    // Clear all existing connections
+    this.nodes.forEach(node => {
+      node.connections.clear();
+    });
+
+    // Check each pair of nodes
+    for (let i = 0; i < this.nodes.length; i++) {
+      for (let j = i + 1; j < this.nodes.length; j++) {
+        const nodeA = this.nodes[i];
+        const nodeB = this.nodes[j];
+
+        // Calculate distance between nodes
+        const dx = nodeB.position.x - nodeA.position.x;
+        const dy = nodeB.position.y - nodeA.position.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Check if within connection radius (use the maximum of the two radii)
+        const maxRadius = Math.max(nodeA.connectionRadius, nodeB.connectionRadius);
+        if (distance <= maxRadius) {
+          nodeA.connections.add(nodeB.id);
+          nodeB.connections.add(nodeA.id);
+        }
+      }
+    }
+    
+    // Don't clear routing tables here - let updateRoutingTables() handle transitions to inactive state
+    // The BFS will recalculate which routes are still valid
+    
+    // Process queued triages for any node that now has connections
+    this.nodes.forEach(node => {
+      // If node has connections AND queued triages, send them now
+      if (node.connections.size > 0 && node.triageQueue.length > 0) {
+        const hadConnectionsBefore = previousConnectionStates.get(node.id);
+        
+        // Log whether this is a reconnection or ongoing connection
+        if (hadConnectionsBefore === false) {
+          console.log(`[Queue Send] Node ${node.id.substring(0, 8)} RECONNECTED - sending ${node.triageQueue.length} queued triages`);
+        } else {
+          console.log(`[Queue Send] Node ${node.id.substring(0, 8)} has connections - sending ${node.triageQueue.length} queued triages`);
+        }
+        
+        // Process all queued triages
+        const queuedTriages = [...node.triageQueue];
+        node.triageQueue = []; // Clear the queue
+        
+        queuedTriages.forEach(queuedTriage => {
+          // Send each queued triage
+          this.sendQueuedTriage(node, queuedTriage.triageId);
+        });
+      }
+    });
+  }
+
+  /**
+   * FOORS+ Routing: Update routing tables for all nodes based on BFS from each sink
+   * This calculates the shortest path (hop count) from each node to each sink
+   */
+  private updateRoutingTables(): void {
+    const now = Date.now();
+    
+    // Find all sink nodes
+    const sinks = this.nodes.filter(node => node.type === 'sink');
+    const sinkIds = new Set(sinks.map(s => s.id));
+    
+    // First pass: Transition routing entries to inactive state for sinks that no longer exist or are unreachable
+    this.nodes.forEach(node => {
+      const keysToTransition: string[] = [];
+      node.routingTable.forEach((_entry, sinkId) => {
+        // Check if sink no longer exists
+        if (!sinkIds.has(sinkId)) {
+          keysToTransition.push(sinkId);
+        }
+      });
+      
+      // Move to inactive routing tables
+      keysToTransition.forEach(sinkId => {
+        const entry = node.routingTable.get(sinkId)!;
+        console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Sink ${sinkId.substring(0, 8)} no longer exists, transitioning to inactive`);
+        node.inactiveRoutingTables.set(sinkId, {
+          sinkId,
+          lastActiveEntry: entry,
+          inactiveSince: now,
+        });
+        node.routingTable.delete(sinkId);
+      });
+    });
+    
+    // Clean up expired inactive routing tables
+    this.nodes.forEach(node => {
+      const keysToDelete: string[] = [];
+      node.inactiveRoutingTables.forEach((inactiveEntry, sinkId) => {
+        const inactiveDuration = now - inactiveEntry.inactiveSince;
+        if (inactiveDuration > this.inactiveRoutingTimeout) {
+          console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Inactive route to ${sinkId.substring(0, 8)} expired (${Math.floor(inactiveDuration / 1000)}s), deleting`);
+          keysToDelete.push(sinkId);
+        }
+      });
+      keysToDelete.forEach(key => node.inactiveRoutingTables.delete(key));
+    });
+    
+    // For each sink, run BFS to calculate hop counts to all reachable nodes
+    sinks.forEach(sink => {
+      // BFS data structures
+      const distances = new Map<string, number>(); // nodeId -> hop count from sink
+      const parents = new Map<string, string>(); // nodeId -> parent nodeId in BFS tree
+      const queue: string[] = [sink.id];
+      
+      distances.set(sink.id, 0);
+      
+      // BFS from sink
+      while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        const currentNode = this.nodes.find(n => n.id === currentId);
+        if (!currentNode) continue;
+        
+        const currentDistance = distances.get(currentId)!;
+        
+        // Visit all connected neighbors
+        currentNode.connections.forEach(neighborId => {
+          if (!distances.has(neighborId)) {
+            // First time visiting this neighbor
+            distances.set(neighborId, currentDistance + 1);
+            parents.set(neighborId, currentId);
+            queue.push(neighborId);
+          }
+        });
+      }
+      
+      // Now update routing tables in all nodes
+      // For each node that can reach this sink, determine its next hops
+      this.nodes.forEach(node => {
+        if (node.id === sink.id) return; // Sink doesn't need route to itself
+        
+        const hopCount = distances.get(node.id);
+        if (hopCount === undefined) {
+          // Node cannot reach this sink - transition to inactive if exists, otherwise skip
+          const existingEntry = node.routingTable.get(sink.id);
+          if (existingEntry) {
+            console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Sink ${sink.id.substring(0, 8)} unreachable, transitioning to inactive`);
+            // Move to inactive routing table
+            node.inactiveRoutingTables.set(sink.id, {
+              sinkId: sink.id,
+              lastActiveEntry: existingEntry,
+              inactiveSince: now,
+            });
+            node.routingTable.delete(sink.id);
+          }
+          return;
+        }
+        
+        // Find all next hops: neighbors that are one hop closer to the sink
+        const nextHops = new Map<string, number>();
+        
+        node.connections.forEach(neighborId => {
+          const neighborDistance = distances.get(neighborId);
+          if (neighborDistance !== undefined && neighborDistance < hopCount) {
+            // This neighbor is closer to the sink - it's a valid next hop
+            nextHops.set(neighborId, neighborDistance + 1); // Store the total hop count via this neighbor
+          }
+        });
+        
+        // Update this node's routing table for this sink
+        if (nextHops.size > 0) {
+          node.routingTable.set(sink.id, {
+            nextHops,
+            lastUpdate: now,
+          });
+          // Remove from inactive tables if it was there (sink reconnected)
+          if (node.inactiveRoutingTables.has(sink.id)) {
+            console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Sink ${sink.id.substring(0, 8)} reconnected, removing from inactive`);
+            node.inactiveRoutingTables.delete(sink.id);
+          }
+        } else {
+          // No valid next hops found - transition to inactive or delete
+          const existingEntry = node.routingTable.get(sink.id);
+          if (existingEntry) {
+            console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Sink ${sink.id.substring(0, 8)} no valid next hops, transitioning to inactive`);
+            node.inactiveRoutingTables.set(sink.id, {
+              sinkId: sink.id,
+              lastActiveEntry: existingEntry,
+              inactiveSince: now,
+            });
+          }
+          node.routingTable.delete(sink.id);
+        }
+      });
+    });
+    
+    // Update routing states for all nodes after routing tables are calculated
+    this.updateRoutingStates();
+  }
+
+  /**
+   * FOORS+ Routing State Update: Calculate routing mode for each node
+   * Determines if node should use intelligent routing or flooding based on route availability
+   */
+  private updateRoutingStates(): void {
+    const now = Date.now();
+    const ROUTE_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+    
+    this.nodes.forEach(node => {
+      // Count active and expired routes
+      let activeRoutes = 0;
+      let expiredRoutes = 0;
+      
+      node.routingTable.forEach((entry) => {
+        const routeAge = now - entry.lastUpdate;
+        if (routeAge < ROUTE_TIMEOUT) {
+          activeRoutes++;
+        } else {
+          expiredRoutes++;
+        }
+      });
+      
+      // Count inactive routing tables
+      const inactiveRoutes = node.inactiveRoutingTables.size;
+      
+      // Determine routing mode based on FOORS+ policy
+      let mode: import('../types/Node').RoutingMode;
+      let floodingReason: 'no-routes' | 'routes-expired' | 'no-connections' | 'has-inactive-routes' | undefined;
+      
+      if (node.connections.size === 0) {
+        mode = 'no-connections';
+        floodingReason = 'no-connections';
+      } else if (inactiveRoutes > 0) {
+        // Has inactive routing tables - enter inactive mode (use flooding to reach potentially reconnecting sinks)
+        // This takes priority over intelligent routing to ensure messages can reach all sinks
+        mode = 'inactive';
+        floodingReason = 'has-inactive-routes';
+      } else if (activeRoutes > 0) {
+        // Has at least one active route and no inactive routes - use intelligent routing
+        mode = 'intelligent';
+        floodingReason = undefined;
+      } else if (expiredRoutes > 0) {
+        // Has expired routes - allow flooding during inactivity window
+        mode = 'flooding';
+        floodingReason = 'routes-expired';
+      } else {
+        // No routes at all - allow flooding
+        mode = 'flooding';
+        floodingReason = 'no-routes';
+      }
+      
+      // Update routing state (only update lastStateChange if mode changed)
+      const previousMode = node.routingState.mode;
+      const modeChanged = mode !== previousMode;
+      
+      node.routingState = {
+        mode,
+        activeRoutes,
+        expiredRoutes,
+        inactiveRoutes,
+        floodingReason,
+        lastStateChange: modeChanged ? now : node.routingState.lastStateChange,
+      };
+      
+      // Log mode changes
+      if (modeChanged) {
+        console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Mode changed: ${previousMode} → ${mode} (active: ${activeRoutes}, expired: ${expiredRoutes}, inactive: ${inactiveRoutes})`);
+      }
+    });
+  }
+
+  /**
+   * Simulation tick - update all nodes based on physics/algorithm
+   * This is where you'll implement your algorithm logic
+   */
+  tick(deltaTime: number): void {
+    // TODO: Implement simulation algorithm here
+    // For now, just apply velocity to position
+    this.nodes.forEach(node => {
+      node.position.x += node.velocity.x * deltaTime;
+      node.position.y += node.velocity.y * deltaTime;
+    });
+
+    // Update connections based on new positions
+    this.updateConnections();
+
+    // Update routing tables (FOORS+ algorithm)
+    this.updateRoutingTables();
+
+    // Auto-generate triages if enabled
+    if (this.isAutoGenerating) {
+      this.updateAutoGeneration();
+    }
+
+    // Update messages
+    this.updateMessages(deltaTime);
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Auto-generate triages at configured interval
+   */
+  private updateAutoGeneration(): void {
+    const now = Date.now();
+    const timeSinceLastGeneration = now - this.lastTriageGeneration;
+
+    if (timeSinceLastGeneration >= this.triageGenerationInterval) {
+      // Find all source nodes (not sinks) with connections
+      const sourceNodes = this.nodes.filter(
+        node => node.type === 'source' && node.connections.size > 0
+      );
+
+      if (sourceNodes.length > 0) {
+        // Pick a random source node
+        const randomNode = sourceNodes[Math.floor(Math.random() * sourceNodes.length)];
+        
+        // Send triage from this node
+        this.sendMessage(randomNode.id, 'triage');
+        console.log(`[Auto-Gen] Generated triage from node ${randomNode.id.substring(0, 8)}`);
+      }
+
+      this.lastTriageGeneration = now;
+    }
+  }
+
+  /**
+   * Get all connections as pairs of node IDs
+   */
+  getConnections(): Array<[string, string]> {
+    const connections: Array<[string, string]> = [];
+    const seen = new Set<string>();
+
+    this.nodes.forEach(node => {
+      node.connections.forEach(connectedId => {
+        // Create a unique key to avoid duplicates
+        const key = [node.id, connectedId].sort().join('-');
+        if (!seen.has(key)) {
+          seen.add(key);
+          connections.push([node.id, connectedId]);
+        }
+      });
+    });
+
+    return connections;
+  }
+
+  /**
+   * Get simulation statistics
+   */
+  getStats() {
+    const connections = this.getConnections();
+    return {
+      nodeCount: this.nodes.length,
+      connectionCount: connections.length,
+      totalVelocity: this.nodes.reduce(
+        (sum, node) => sum + Math.sqrt(node.velocity.x ** 2 + node.velocity.y ** 2),
+        0
+      ),
+    };
+  }
+
+  /**
+   * Send a message from one node using FOORS+ intelligent routing
+   * Uses routing tables to forward to next hops, falls back to flooding if no route exists
+   * Queues triages when node has no connections
+   */
+  sendMessage(fromNodeId: string, messageType: import('../types/Message').MessageType = 'normal'): void {
+    const fromNode = this.nodes.find(n => n.id === fromNodeId);
+    if (!fromNode) return;
+
+    // Generate a unique triage ID if this is a triage message
+    const triageId = messageType === 'triage' ? uuidv4() : undefined;
+    
+    // If it's a triage, store it in the node's triage store
+    if (messageType === 'triage' && triageId) {
+      fromNode.triageStore.add(triageId);
+      
+      // Queue triage if node has no connections
+      if (fromNode.connections.size === 0) {
+        console.log(`Node ${fromNode.id.substring(0, 8)} has no connections - queueing triage ${triageId.substring(0, 8)}`);
+        fromNode.triageQueue.push({
+          triageId,
+          queuedAt: Date.now(),
+        });
+        this.notifyListeners();
+        return; // Don't try to send yet
+      }
+    }
+
+    // FOORS+ Routing Logic: Determine which peers to send to
+    const targetPeers = this.selectRoutingTargets(fromNode, fromNodeId);
+
+    // Create messages to selected target peers
+    targetPeers.forEach(toNodeId => {
+      const message: Message = {
+        id: uuidv4(),
+        fromNodeId,
+        toNodeId,
+        progress: 0,
+        speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+        color: messageType === 'triage' ? DEFAULT_MESSAGE_CONFIG.triageColor : DEFAULT_MESSAGE_CONFIG.defaultColor,
+        createdAt: Date.now(),
+        type: messageType,
+        triageId,
+      };
+      this.messages.push(message);
+    });
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Send a queued triage message from a node that has reconnected
+   * The triage ID already exists in the node's triage store
+   * Uses flooding since routing tables may not be updated yet
+   */
+  private sendQueuedTriage(fromNode: Node, triageId: string): void {
+    // Triage should already be in the node's triage store
+    if (!fromNode.triageStore.has(triageId)) {
+      console.warn(`[Queue Send] Queued triage ${triageId.substring(0, 8)} not in node ${fromNode.id.substring(0, 8)} triage store`);
+      return;
+    }
+
+    console.log(`[Queue Send] Node ${fromNode.id.substring(0, 8)} sending queued triage ${triageId.substring(0, 8)} to ${fromNode.connections.size} connections`);
+
+    // Use flooding: send to all connected neighbors
+    // This is necessary because routing tables may not be updated yet after reconnection
+    const targetPeers = new Set<string>();
+    fromNode.connections.forEach(peerId => {
+      targetPeers.add(peerId);
+    });
+
+    console.log(`[Queue Send] Using flooding - sending to ${targetPeers.size} peers`);
+
+    // Create messages to all connected peers
+    targetPeers.forEach(toNodeId => {
+      const message: Message = {
+        id: uuidv4(),
+        fromNodeId: fromNode.id,
+        toNodeId,
+        progress: 0,
+        speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+        color: DEFAULT_MESSAGE_CONFIG.triageColor,
+        createdAt: Date.now(),
+        type: 'triage',
+        triageId,
+      };
+      this.messages.push(message);
+      console.log(`[Queue Send] Created message from ${fromNode.id.substring(0, 8)} to ${toNodeId.substring(0, 8)}`);
+    });
+
+    this.notifyListeners();
+  }
+
+  /**
+   * FOORS+ Routing Decision: Select which peers to forward to
+   * Uses routing state to determine intelligent routing vs flooding
+   */
+  private selectRoutingTargets(node: Node, excludeNodeId?: string): Set<string> {
+    const targets = new Set<string>();
+
+    // Use FOORS+ routing state to decide behavior
+    if (node.routingState.mode === 'intelligent') {
+      // FOORS+ Intelligent Routing: Forward only to next hops from routing tables
+      const now = Date.now();
+      const ROUTE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+
+      // Collect all next hops from active routes
+      node.routingTable.forEach((entry) => {
+        const routeAge = now - entry.lastUpdate;
+        if (routeAge < ROUTE_TIMEOUT) {
+          // Add all next hops from this active route
+          entry.nextHops.forEach((_, peerId) => {
+            if (peerId !== excludeNodeId) {
+              targets.add(peerId);
+            }
+          });
+        }
+      });
+    } else if (node.routingState.mode === 'flooding' || node.routingState.mode === 'inactive') {
+      // FOORS+ Flooding Policy: Send to all neighbors (controlled flooding)
+      // Also used for inactive mode when routes exist but sinks are disconnected
+      node.connections.forEach(peerId => {
+        if (peerId !== excludeNodeId) {
+          targets.add(peerId);
+        }
+      });
+      
+      if (node.routingState.mode === 'inactive' && targets.size > 0) {
+        console.log(`[FOORS+] Node ${node.id.substring(0, 8)} - Using flooding due to inactive routes (${node.inactiveRoutingTables.size} inactive, ${node.routingTable.size} active)`);
+      }
+    }
+    // If mode is 'no-connections', targets remains empty
+
+    return targets;
+  }
+
+  /**
+   * Get all active messages
+   */
+  getMessages(): Message[] {
+    return this.messages;
+  }
+
+  /**
+   * Update messages (move them along connections)
+   */
+  private updateMessages(deltaTime: number): void {
+    // Update message progress and check for arrivals
+    this.messages.forEach(message => {
+      const oldProgress = message.progress;
+      message.progress += message.speed * deltaTime;
+      
+      // Check if message just arrived (crossed the threshold)
+      if (oldProgress < 1 && message.progress >= 1) {
+        this.onMessageArrival(message);
+      }
+    });
+
+    // Remove completed messages (progress >= 1)
+    this.messages = this.messages.filter(message => message.progress < 1);
+  }
+
+  /**
+   * Handle message arrival at a node
+   * FOORS+ Algorithm: Uses intelligent routing when available, falls back to flooding
+   * Queues triages if node becomes disconnected
+   */
+  private onMessageArrival(message: Message): void {
+    const node = this.nodes.find(n => n.id === message.toNodeId);
+    if (!node) return;
+    
+    // Set timestamp for visual effect
+    node.lastMessageReceivedAt = Date.now();
+    
+    // Handle triage messages with deduplication
+    if (message.type === 'triage' && message.triageId) {
+      // Check if we've already seen this triage
+      if (node.triageStore.has(message.triageId)) {
+        // Already have this triage - do nothing (don't forward)
+        return;
+      }
+      
+      // New triage - store it
+      node.triageStore.add(message.triageId);
+      
+      // If node has no connections, queue the triage for later
+      if (node.type === 'source' && node.connections.size === 0) {
+        console.log(`Node ${node.id.substring(0, 8)} received triage ${message.triageId.substring(0, 8)} but has no connections - queueing`);
+        node.triageQueue.push({
+          triageId: message.triageId,
+          queuedAt: Date.now(),
+        });
+        this.notifyListeners();
+        return; // Don't try to forward yet
+      }
+    }
+    
+    // FOORS+ Routing Logic: Source nodes forward messages, sinks receive only
+    if (node.type === 'source') {
+      // Select routing targets using FOORS+ algorithm (exclude sender to avoid loops)
+      const targetPeers = this.selectRoutingTargets(node, message.fromNodeId);
+      
+      // Forward to selected peers
+      targetPeers.forEach(toNodeId => {
+        const forwardedMessage: Message = {
+          id: uuidv4(),
+          fromNodeId: node.id,
+          toNodeId,
+          progress: 0,
+          speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+          color: message.color, // Preserve the original message color
+          createdAt: Date.now(),
+          type: message.type, // Preserve message type
+          triageId: message.triageId, // Preserve triage ID for deduplication
+        };
+        this.messages.push(forwardedMessage);
+      });
+      
+      this.notifyListeners();
+    }
+    
+    // Sink nodes just receive messages (dashboard behavior)
+    // No forwarding needed
+  }
+}
