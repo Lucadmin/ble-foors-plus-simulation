@@ -44,7 +44,19 @@ export interface RoutingState {
  */
 export interface QueuedTriage {
   triageId: string; // Unique identifier for the triage
+  severity: import('./Message').TriageSeverity; // Severity associated with this triage
   queuedAt: number; // Timestamp when triage was queued
+}
+
+/**
+ * Pending ACK record for a message sent from this node to a peer
+ */
+export interface PendingAck {
+  messageId: string; // Transport message ID awaiting ACK
+  toNodeId: string; // Peer we sent to (and expect ACK from)
+  createdAt: number; // When the original message was created
+  status: 'pending' | 'acked' | 'timeout';
+  ackedAt?: number; // When ACK was received (if any)
 }
 
 export interface Node {
@@ -67,6 +79,13 @@ export interface Node {
   lastMessageReceivedAt?: number; // Timestamp of last message arrival for visual effect
   triageStore: Set<string>; // Set of triage IDs this node has seen (for deduplication)
   triageQueue: QueuedTriage[]; // Queue of triages waiting to be sent when reconnected
+  // Triage catalog: metadata per triage for replay/sync
+  triageCatalog: Map<string, { severity: import('./Message').TriageSeverity; firstSeenAt: number; firstSeenMode: RoutingMode }>;
+  // Link-layer reliability: track pending ACKs for messages sent to neighbors
+  // Map<messageId, PendingAck>
+  pendingAcks: Map<string, PendingAck>;
+  // Sync state: track last summary exchange timestamps per peer
+  lastSummaryExchange: Map<string, number>;
   
   // FOORS+ Routing Table: one entry per known sink
   // Map<sinkId, RoutingTableEntry>

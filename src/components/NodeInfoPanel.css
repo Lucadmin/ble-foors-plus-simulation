@@ -140,6 +140,37 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
+/* Triage controls */
+.triage-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.severity-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.severity-chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.severity-chip.selected {
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.2);
+  transform: translateY(-1px);
+}
+
+.severity-chip.black { background: #4B5563; }
+.severity-chip.green { background: #10B981; }
+.severity-chip.yellow { background: #F59E0B; }
+.severity-chip.red { background: #EF4444; }
+
 .node-action-btn {
   display: flex;
   align-items: center;

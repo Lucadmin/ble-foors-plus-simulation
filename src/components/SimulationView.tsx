@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { SimulationModel } from '../models/SimulationModel';
+import type { TriageSeverity } from '../types/Message';
 import { SimulationController } from '../controllers/SimulationController';
 import { NodeRenderer } from '../utils/NodeRenderer';
 import { ConnectionRenderer } from '../utils/ConnectionRenderer';
@@ -55,6 +56,8 @@ const SimulationView = ({
   const [isPinned, setIsPinned] = useState(false);
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
   const [detailNodeIds, setDetailNodeIds] = useState<string[]>([]);
+  // Global triage severity selection (used by panel + keyboard 'T')
+  const [selectedSeverity, setSelectedSeverity] = useState<TriageSeverity>('red');
 
   // Initialize model and controller
   useEffect(() => {
@@ -347,9 +350,9 @@ const SimulationView = ({
     }
   }, [pinnedNodeId]);
 
-  // Handle send message
-  const handleSendMessage = useCallback((nodeId: string, messageType: import('../types/Message').MessageType) => {
-    modelRef.current?.sendMessage(nodeId, messageType);
+  // Handle send message (with optional triage severity)
+  const handleSendMessage = useCallback((nodeId: string, messageType: import('../types/Message').MessageType, triageSeverity?: import('../types/Message').TriageSeverity) => {
+    modelRef.current?.sendMessage(nodeId, messageType, triageSeverity);
   }, []);
 
   // Handle toggle node type
@@ -453,11 +456,32 @@ const SimulationView = ({
           break;
 
         case 't':
-          // Send triage (or queue if disconnected)
+          // Send triage (or queue if disconnected) with currently selected severity
           e.preventDefault();
           if (selectedNodeId) {
-            model.sendMessage(selectedNodeId, 'triage');
+            model.sendMessage(selectedNodeId, 'triage', selectedSeverity);
           }
+          break;
+
+        case '1':
+          // Set severity: black
+          e.preventDefault();
+          setSelectedSeverity('black');
+          break;
+        case '2':
+          // Set severity: green
+          e.preventDefault();
+          setSelectedSeverity('green');
+          break;
+        case '3':
+          // Set severity: yellow
+          e.preventDefault();
+          setSelectedSeverity('yellow');
+          break;
+        case '4':
+          // Set severity: red
+          e.preventDefault();
+          setSelectedSeverity('red');
           break;
 
         case 's':
@@ -499,7 +523,7 @@ const SimulationView = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, isPinned, handleTogglePin, handleAddToDetails, handleDeleteNode]);
+  }, [selectedNodeId, isPinned, selectedSeverity, handleTogglePin, handleAddToDetails, handleDeleteNode]);
 
   // Get the node to display in info panel
   // When pinned, always show the pinned node. Otherwise, show selected or hovered
@@ -525,6 +549,8 @@ const SimulationView = ({
         isVisible={isInfoPanelVisible}
         isPinned={isPinned}
         isInDetailPanel={displayedNode ? detailNodeIds.includes(displayedNode.id) : false}
+        triageSeverity={selectedSeverity}
+        onTriageSeverityChange={setSelectedSeverity}
         onDeleteNode={handleDeleteNode}
         onTogglePin={handleTogglePin}
         onSendMessage={handleSendMessage}

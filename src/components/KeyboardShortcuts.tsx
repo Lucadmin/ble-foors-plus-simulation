@@ -25,6 +25,10 @@ const shortcuts: Shortcut[] = [
 
   // Node Actions
   { keys: ['T'], description: 'Send triage from selected node', category: 'Actions' },
+  { keys: ['1'], description: 'Select triage severity: Black', category: 'Actions' },
+  { keys: ['2'], description: 'Select triage severity: Green', category: 'Actions' },
+  { keys: ['3'], description: 'Select triage severity: Yellow', category: 'Actions' },
+  { keys: ['4'], description: 'Select triage severity: Red', category: 'Actions' },
   { keys: ['S'], description: 'Toggle node type (Source/Sink)', category: 'Actions' },
   { keys: ['I'], description: 'Add selected node to detail panel', category: 'Actions' },
   { keys: ['Delete'], description: 'Delete selected node', category: 'Actions' },

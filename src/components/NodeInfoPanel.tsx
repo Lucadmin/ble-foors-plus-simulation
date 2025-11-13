@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { HiTrash } from 'react-icons/hi';
 import { MdPushPin, MdOutlinePushPin, MdSwapVert, MdWarning, MdViewSidebar } from 'react-icons/md';
 import type { Node } from '../types/Node';
-import type { MessageType } from '../types/Message';
+import type { MessageType, TriageSeverity } from '../types/Message';
 import './NodeInfoPanel.css';
 
 interface NodeInfoPanelProps {
@@ -10,14 +10,16 @@ interface NodeInfoPanelProps {
   isVisible: boolean;
   isPinned: boolean;
   isInDetailPanel?: boolean;
+  triageSeverity?: TriageSeverity;
+  onTriageSeverityChange?: (severity: TriageSeverity) => void;
   onDeleteNode?: (nodeId: string) => void;
   onTogglePin?: () => void;
-  onSendMessage?: (nodeId: string, messageType: MessageType) => void;
+  onSendMessage?: (nodeId: string, messageType: MessageType, triageSeverity?: TriageSeverity) => void;
   onToggleType?: (nodeId: string) => void;
   onAddToDetails?: (nodeId: string) => void;
 }
 
-const NodeInfoPanel = ({ node, isVisible, isPinned, isInDetailPanel, onDeleteNode, onTogglePin, onSendMessage, onToggleType, onAddToDetails }: NodeInfoPanelProps) => {
+const NodeInfoPanel = ({ node, isVisible, isPinned, isInDetailPanel, triageSeverity = 'red', onTriageSeverityChange, onDeleteNode, onTogglePin, onSendMessage, onToggleType, onAddToDetails }: NodeInfoPanelProps) => {
   const [shouldRender, setShouldRender] = useState(false);
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
 
@@ -92,11 +94,33 @@ const NodeInfoPanel = ({ node, isVisible, isPinned, isInDetailPanel, onDeleteNod
               <span className="stat-label">Triages</span>
               <span className="stat-value">{node.triageStore.size}</span>
             </div>
+            <div className="node-info-stat">
+              <span className="stat-label">ACK Pending</span>
+              <span className="stat-value" title="Unacknowledged messages awaiting ACK">{
+                Array.from(node.pendingAcks.values()).filter(a => a.status === 'pending').length
+              }</span>
+            </div>
+            {Array.from(node.pendingAcks.values()).some(a => a.status === 'timeout') && (
+              <div className="node-info-stat queued">
+                <span className="stat-label">Timeouts</span>
+                <span className="stat-value" style={{ color: '#EF4444' }}>
+                  ⏱ {Array.from(node.pendingAcks.values()).filter(a => a.status === 'timeout').length}
+                </span>
+              </div>
+            )}
             {node.triageQueue.length > 0 && (
               <div className="node-info-stat queued">
                 <span className="stat-label">Queued</span>
                 <span className="stat-value" style={{ color: '#F59E0B' }}>
                   🔔 {node.triageQueue.length}
+                </span>
+              </div>
+            )}
+            {node.lastSummaryExchange.size > 0 && (
+              <div className="node-info-stat">
+                <span className="stat-label">Sync</span>
+                <span className="stat-value" title="Recent subnet sync exchanges">
+                  {node.lastSummaryExchange.size} peers
                 </span>
               </div>
             )}
@@ -155,14 +179,26 @@ const NodeInfoPanel = ({ node, isVisible, isPinned, isInDetailPanel, onDeleteNod
           <MdViewSidebar />
           <span className="keyboard-hint">I</span>
         </button>
-        <button
-          className="node-action-btn triage-btn"
-          title={node.connections.size === 0 ? "Queue Triage (T) - Will send when reconnected" : "Send Triage Message (T)"}
-          onClick={() => onSendMessage?.(node.id, 'triage')}
-        >
-          <MdWarning />
-          <span className="keyboard-hint">T</span>
-        </button>
+        <div className="triage-controls">
+          <div className="severity-selector" title="Select triage severity">
+            {(['black', 'green', 'yellow', 'red'] as TriageSeverity[]).map(s => (
+              <button
+                key={s}
+                className={`severity-chip ${s} ${triageSeverity === s ? 'selected' : ''}`}
+                onClick={() => onTriageSeverityChange?.(s)}
+                aria-label={`Set severity ${s}`}
+              />
+            ))}
+          </div>
+          <button
+            className="node-action-btn triage-btn"
+            title={node.connections.size === 0 ? "Queue Triage (T) - Will send when reconnected" : "Send Triage Message (T)"}
+            onClick={() => onSendMessage?.(node.id, 'triage', triageSeverity)}
+          >
+            <MdWarning />
+            <span className="keyboard-hint">T</span>
+          </button>
+        </div>
         <button
           className="node-action-btn"
           title={`Toggle Type (S) - Current: ${node.type === 'sink' ? 'Sink' : 'Source'}`}

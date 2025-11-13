@@ -59,48 +59,67 @@ export class MessageRenderer {
       let messageGroup = this.messageMeshes.get(message.id);
       if (!messageGroup) {
         messageGroup = new THREE.Group();
+        messageGroup.userData.isAck = message.type === 'ack';
 
-        // Bright center particle
-        const coreGeometry = new THREE.SphereGeometry(0.06, 16, 16);
-        const coreMaterial = new THREE.MeshBasicMaterial({
-          color: 0xFFFFFF,
-          transparent: true,
-          opacity: 1.0,
-        });
-        const core = new THREE.Mesh(coreGeometry, coreMaterial);
-        messageGroup.add(core);
+        if (message.type === 'ack') {
+          // Minimal ACK visual: small gray sphere with faint halo
+          const coreGeometry = new THREE.SphereGeometry(0.045, 12, 12);
+          const coreMaterial = new THREE.MeshBasicMaterial({
+            color: message.color,
+            transparent: true,
+            opacity: 0.8,
+          });
+          const core = new THREE.Mesh(coreGeometry, coreMaterial);
+          messageGroup.add(core);
 
-        // Inner glow - vibrant color
-        const innerGlowGeometry = new THREE.SphereGeometry(0.10, 16, 16);
-        const innerGlowMaterial = new THREE.MeshBasicMaterial({
-          color: message.color,
-          transparent: true,
-          opacity: 0.7,
-        });
-        const innerGlow = new THREE.Mesh(innerGlowGeometry, innerGlowMaterial);
-        messageGroup.add(innerGlow);
+          const haloGeometry = new THREE.SphereGeometry(0.08, 12, 12);
+            const haloMaterial = new THREE.MeshBasicMaterial({
+              color: message.color,
+              transparent: true,
+              opacity: 0.25,
+            });
+          const halo = new THREE.Mesh(haloGeometry, haloMaterial);
+          messageGroup.add(halo);
+        } else {
+          // Regular rich triage/normal visual
+          const coreGeometry = new THREE.SphereGeometry(0.06, 16, 16);
+          const coreMaterial = new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
+            transparent: true,
+            opacity: 1.0,
+          });
+          const core = new THREE.Mesh(coreGeometry, coreMaterial);
+          messageGroup.add(core);
 
-        // Outer glow - softer
-        const outerGlowGeometry = new THREE.SphereGeometry(0.16, 16, 16);
-        const outerGlowMaterial = new THREE.MeshBasicMaterial({
-          color: message.color,
-          transparent: true,
-          opacity: 0.3,
-        });
-        const outerGlow = new THREE.Mesh(outerGlowGeometry, outerGlowMaterial);
-        messageGroup.add(outerGlow);
+          const innerGlowGeometry = new THREE.SphereGeometry(0.10, 16, 16);
+          const innerGlowMaterial = new THREE.MeshBasicMaterial({
+            color: message.color,
+            transparent: true,
+            opacity: 0.7,
+          });
+          const innerGlow = new THREE.Mesh(innerGlowGeometry, innerGlowMaterial);
+          messageGroup.add(innerGlow);
 
-        // Motion streak - elongated in direction of travel (tapers away from direction)
-        const streakGeometry = new THREE.CylinderGeometry(0.01, 0.04, 0.35, 8);
-        streakGeometry.rotateZ(Math.PI / 2); // Rotate to horizontal
-        const streakMaterial = new THREE.MeshBasicMaterial({
-          color: message.color,
-          transparent: true,
-          opacity: 0.6,
-        });
-        const streak = new THREE.Mesh(streakGeometry, streakMaterial);
-        streak.position.x = -0.175; // Position behind core
-        messageGroup.add(streak);
+          const outerGlowGeometry = new THREE.SphereGeometry(0.16, 16, 16);
+          const outerGlowMaterial = new THREE.MeshBasicMaterial({
+            color: message.color,
+            transparent: true,
+            opacity: 0.3,
+          });
+          const outerGlow = new THREE.Mesh(outerGlowGeometry, outerGlowMaterial);
+          messageGroup.add(outerGlow);
+
+          const streakGeometry = new THREE.CylinderGeometry(0.01, 0.04, 0.35, 8);
+          streakGeometry.rotateZ(Math.PI / 2);
+          const streakMaterial = new THREE.MeshBasicMaterial({
+            color: message.color,
+            transparent: true,
+            opacity: 0.6,
+          });
+          const streak = new THREE.Mesh(streakGeometry, streakMaterial);
+          streak.position.x = -0.175;
+          messageGroup.add(streak);
+        }
 
         this.scene.add(messageGroup);
         this.messageMeshes.set(message.id, messageGroup);
@@ -109,18 +128,17 @@ export class MessageRenderer {
       messageGroup.position.set(currentX, currentY, 0.5);
       messageGroup.rotation.z = angle;
 
-      // Animated pulsing for all glows
-      const time = Date.now() * 0.005;
-      const pulse = 1 + Math.sin(time) * 0.2;
-      const innerGlow = messageGroup.children[1] as THREE.Mesh;
-      const outerGlow = messageGroup.children[2] as THREE.Mesh;
-      
-      if (innerGlow) {
-        innerGlow.scale.set(pulse, pulse, pulse);
-      }
-      if (outerGlow) {
-        const outerPulse = 1 + Math.sin(time * 0.7) * 0.3;
-        outerGlow.scale.set(outerPulse, outerPulse, outerPulse);
+      // Skip heavy animation for ACKs
+      if (!messageGroup.userData.isAck) {
+        const time = Date.now() * 0.005;
+        const pulse = 1 + Math.sin(time) * 0.2;
+        const innerGlow = messageGroup.children[1] as THREE.Mesh;
+        const outerGlow = messageGroup.children[2] as THREE.Mesh;
+        if (innerGlow) innerGlow.scale.set(pulse, pulse, pulse);
+        if (outerGlow) {
+          const outerPulse = 1 + Math.sin(time * 0.7) * 0.3;
+          outerGlow.scale.set(outerPulse, outerPulse, outerPulse);
+        }
       }
     });
 
