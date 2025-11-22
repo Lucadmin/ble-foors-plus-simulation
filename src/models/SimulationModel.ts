@@ -151,6 +151,12 @@ export class SimulationModel {
     this.nodes.push(node);
     this.updateConnections();
     this.updateRoutingTables();
+
+    // If this node is created as a sink into an existing network,
+    // sync missing triages from any sinks that already have routes to it.
+    if (node.type === 'sink') {
+      this.syncNewSinkFromExistingSinks(node);
+    }
     // Auto-select newly created node if no other node is currently 'pinned'/selected.
     // Selection state is handled in controller; expose a lightweight hint by marking all others unselected.
     const anyCurrentlySelected = this.nodes.some(n => n.selected);
@@ -249,6 +255,10 @@ export class SimulationModel {
         // Skip triages that the new sink has already seen
         if (newSink.triageStore.has(triageId)) return;
 
+        // Also skip if this sink has already sent this triage towards the new sink
+        const perTriage = sink.sentTriagesToSinks.get(triageId);
+        if (perTriage && perTriage.has(newSink.id)) return;
+
         const severity: import('../types/Message').TriageSeverity = 'red';
 
         // Use the routing table to send from this sink towards the new sink
@@ -267,6 +277,14 @@ export class SimulationModel {
           };
           this.messages.push(message);
         });
+
+        // Mark that this sink has now sent this triage towards the new sink
+        let per = sink.sentTriagesToSinks.get(triageId);
+        if (!per) {
+          per = new Set<string>();
+          sink.sentTriagesToSinks.set(triageId, per);
+        }
+        per.add(newSink.id);
       });
     });
 
@@ -518,6 +536,17 @@ export class SimulationModel {
     
     // Update routing states for all nodes after routing tables are calculated
     this.updateRoutingStates();
+
+    // After routing is updated, if any sink has a route to another sink
+    // treat that other sink as "newly reachable" and sync missing triages.
+    sinks.forEach(potentialNewSink => {
+      const someOtherSinkHasRoute = sinks.some(other =>
+        other.id !== potentialNewSink.id && other.routingTable.has(potentialNewSink.id)
+      );
+      if (someOtherSinkHasRoute) {
+        this.syncNewSinkFromExistingSinks(potentialNewSink);
+      }
+    });
   }
 
   // Note: replayMissingTriagesToSink helper removed for boundary-only replay.
@@ -987,14 +1016,18 @@ export class SimulationModel {
 
     // Handle triage messages with deduplication
     if (message.type === 'triage' && message.triageId) {
-      // Check if we've already seen this triage
-      if (node.triageStore.has(message.triageId)) {
-        // Already have this triage - do nothing (don't forward)
-        return;
+      // In flooding/inactive mode, use strict dedup to avoid loops
+      if (node.routingState.mode === 'flooding' || node.routingState.mode === 'inactive') {
+        if (node.triageStore.has(message.triageId)) {
+          return; // already seen in flooding-style propagation
+        }
+        node.triageStore.add(message.triageId);
+      } else {
+        // In intelligent mode, remember we've seen it but don't drop solely on that
+        if (!node.triageStore.has(message.triageId)) {
+          node.triageStore.add(message.triageId);
+        }
       }
-      
-      // New triage - store it
-      node.triageStore.add(message.triageId);
       
       // If node has no connections, queue the triage for later
       if (node.connections.size === 0) {
@@ -1022,6 +1055,17 @@ export class SimulationModel {
         node.routingTable.forEach((_entry, sinkId) => {
           sinkIdsForForward.add(sinkId);
         });
+
+        // Only use per-sink forwarding suppression in intelligent mode.
+        if (node.routingState.mode === 'intelligent') {
+          const perTriage = node.sentTriagesToSinks.get(message.triageId);
+          const allAlreadySent = perTriage && sinkIdsForForward.size > 0
+            ? Array.from(sinkIdsForForward).every(sinkId => perTriage!.has(sinkId))
+            : false;
+          if (allAlreadySent) {
+            return;
+          }
+        }
       }
 
       // Forward to selected peers
