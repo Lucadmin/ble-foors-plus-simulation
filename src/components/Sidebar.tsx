@@ -17,6 +17,12 @@ interface SidebarProps {
   onReset?: () => void;
   nodeCount?: number;
   connectionCount?: number;
+  sinkCount?: number;
+  sourceCount?: number;
+  routingModes?: { intelligent: number; flooding: number; inactive: number; noConnections: number };
+  queuedTriages?: number;
+  messagesInFlight?: number;
+  triagesSeenAtSinks?: number;
   onFitToView?: () => void;
 }
 
@@ -34,6 +40,12 @@ const Sidebar = ({
   onReset,
   nodeCount = 0,
   connectionCount = 0,
+  sinkCount = 0,
+  sourceCount = 0,
+  routingModes = { intelligent: 0, flooding: 0, inactive: 0, noConnections: 0 },
+  queuedTriages = 0,
+  messagesInFlight = 0,
+  triagesSeenAtSinks = 0,
   onFitToView,
 }: SidebarProps) => {
   const [activeTab, setActiveTab] = useState<'controls' | 'info'>('controls');
@@ -195,6 +207,28 @@ const Sidebar = ({
               <div className="info-item">
                 <span className="info-label">Connections:</span>
                 <span className="info-value">{connectionCount}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Sources / Sinks:</span>
+                <span className="info-value">{sourceCount} / {sinkCount}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Routing Modes (I/F/In/NC):</span>
+                <span className="info-value">
+                  {routingModes.intelligent}/{routingModes.flooding}/{routingModes.inactive}/{routingModes.noConnections}
+                </span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Queued Triages:</span>
+                <span className="info-value">{queuedTriages}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Messages In Flight:</span>
+                <span className="info-value">{messagesInFlight}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Triages Seen At Sinks:</span>
+                <span className="info-value">{triagesSeenAtSinks}</span>
               </div>
               <div className="info-item">
                 <span className="info-label">FPS:</span>

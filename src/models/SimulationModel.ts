@@ -361,9 +361,9 @@ export class SimulationModel {
           const peer = this.getNode(peerId);
           if (!peer) return;
 
-          // If this node is in flooding or inactive mode (no usable sink routes),
-          // send any triages it has seen that the peer has not yet seen.
-          if (node.routingState.mode === 'flooding' || node.routingState.mode === 'inactive') {
+          // Special case: if this new neighbor is a sink, push all triages
+          // this node has that the sink hasn't yet seen directly to it.
+          if (peer.type === 'sink' && node.triageStore.size > 0) {
             node.triageStore.forEach(triageId => {
               if (!peer.triageStore.has(triageId)) {
                 const severity: import('../types/Message').TriageSeverity = 'red';
@@ -384,7 +384,55 @@ export class SimulationModel {
               }
             });
 
-            this.notifyListeners();
+            if (this.messages.length > 0) {
+              this.notifyListeners();
+            }
+            return; // done for this new link
+          }
+
+          // General case: if the peer can reach sinks that this node hasn't
+          // yet targeted triages towards, seed those triages across this
+          // boundary. Uses sentTriagesToSinks to avoid repeated seeding.
+          const reachableSinksFromPeer = Array.from(peer.routingTable.keys());
+          if (reachableSinksFromPeer.length > 0 && node.triageStore.size > 0) {
+            node.triageStore.forEach(triageId => {
+              // For this triage, find if there is at least one sink S reachable
+              // from the peer that this node has not yet marked as sent towards.
+              const perTriage = node.sentTriagesToSinks.get(triageId);
+              const hasNewSinkTarget = reachableSinksFromPeer.some(sinkId => !perTriage || !perTriage.has(sinkId));
+              if (!hasNewSinkTarget) return;
+
+              if (!peer.triageStore.has(triageId)) {
+                const severity: import('../types/Message').TriageSeverity = 'red';
+
+                const message: Message = {
+                  id: uuidv4(),
+                  fromNodeId: node.id,
+                  toNodeId: peer.id,
+                  progress: 0,
+                  speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+                  color: DEFAULT_MESSAGE_CONFIG.triageSeverityColors[severity],
+                  createdAt: Date.now(),
+                  type: 'triage',
+                  triageId,
+                  triageSeverity: severity,
+                };
+                this.messages.push(message);
+              }
+
+              // Mark all peer-reachable sinks as now having been targeted
+              // from this node for this triage, so we don't reseed later.
+              let per = node.sentTriagesToSinks.get(triageId);
+              if (!per) {
+                per = new Set<string>();
+                node.sentTriagesToSinks.set(triageId, per);
+              }
+              reachableSinksFromPeer.forEach(sinkId => per!.add(sinkId));
+            });
+
+            if (this.messages.length > 0) {
+              this.notifyListeners();
+            }
           }
         }
       });
@@ -715,6 +763,20 @@ export class SimulationModel {
    */
   getStats() {
     const connections = this.getConnections();
+    const sinks = this.nodes.filter(node => node.type === 'sink');
+    const sources = this.nodes.filter(node => node.type === 'source');
+    const routingModeCounts = {
+      intelligent: this.nodes.filter(n => n.routingState.mode === 'intelligent').length,
+      flooding: this.nodes.filter(n => n.routingState.mode === 'flooding').length,
+      inactive: this.nodes.filter(n => n.routingState.mode === 'inactive').length,
+      noConnections: this.nodes.filter(n => n.routingState.mode === 'no-connections').length,
+    };
+
+    const totalQueuedTriages = this.nodes.reduce((sum, n) => sum + n.triageQueue.length, 0);
+    const totalMessagesInFlight = this.messages.filter(m => m.progress < 1).length;
+    const totalTriagesSeenAtSinks = new Set<string>();
+    sinks.forEach(s => s.triageStore.forEach(id => totalTriagesSeenAtSinks.add(id)));
+
     return {
       nodeCount: this.nodes.length,
       connectionCount: connections.length,
@@ -722,6 +784,12 @@ export class SimulationModel {
         (sum, node) => sum + Math.sqrt(node.velocity.x ** 2 + node.velocity.y ** 2),
         0
       ),
+      sinkCount: sinks.length,
+      sourceCount: sources.length,
+      routingModes: routingModeCounts,
+      queuedTriages: totalQueuedTriages,
+      messagesInFlight: totalMessagesInFlight,
+      triagesSeenAtSinks: totalTriagesSeenAtSinks.size,
     };
   }
 

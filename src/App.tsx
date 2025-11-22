@@ -10,6 +10,17 @@ function App() {
     connectionRadius: 2.0,
     inactiveRoutingTimeout: 5 * 60 * 1000, // 5 minutes default
     triageGenerationInterval: 3000, // 3 seconds default
+    sinkCount: 0,
+    sourceCount: 0,
+    routingModes: {
+      intelligent: 0,
+      flooding: 0,
+      inactive: 0,
+      noConnections: 0,
+    },
+    queuedTriages: 0,
+    messagesInFlight: 0,
+    triagesSeenAtSinks: 0,
   });
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [setConnectionRadiusHandler, setSetConnectionRadiusHandler] = useState<((radius: number) => void) | null>(null);
@@ -19,7 +30,7 @@ function App() {
   const [resetHandler, setResetHandler] = useState<(() => void) | null>(null);
   const [fitToViewHandler, setFitToViewHandler] = useState<(() => void) | null>(null);
 
-  const handleStatsUpdate = useCallback((newStats: { nodeCount: number; connectionCount: number; connectionRadius: number }) => {
+  const handleStatsUpdate = useCallback((newStats: { nodeCount: number; connectionCount: number; connectionRadius: number; sinkCount: number; sourceCount: number; routingModes: { intelligent: number; flooding: number; inactive: number; noConnections: number }; queuedTriages: number; messagesInFlight: number; triagesSeenAtSinks: number }) => {
     setStats(prev => ({
       ...prev,
       ...newStats,
@@ -113,6 +124,12 @@ function App() {
         isAutoGenerating={isAutoGenerating}
         nodeCount={stats.nodeCount}
         connectionCount={stats.connectionCount}
+        sinkCount={stats.sinkCount}
+        sourceCount={stats.sourceCount}
+        routingModes={stats.routingModes}
+        queuedTriages={stats.queuedTriages}
+        messagesInFlight={stats.messagesInFlight}
+        triagesSeenAtSinks={stats.triagesSeenAtSinks}
         onConnectionRadiusChange={handleConnectionRadiusChange}
         onInactiveRoutingTimeoutChange={handleInactiveRoutingTimeoutChange}
         onTriageGenerationIntervalChange={handleTriageGenerationIntervalChange}

@@ -12,7 +12,17 @@ import KeyboardShortcuts from './KeyboardShortcuts';
 import './SimulationCanvas.css';
 
 interface SimulationViewProps {
-  onStatsUpdate?: (stats: { nodeCount: number; connectionCount: number; connectionRadius: number }) => void;
+  onStatsUpdate?: (stats: {
+    nodeCount: number;
+    connectionCount: number;
+    connectionRadius: number;
+    sinkCount: number;
+    sourceCount: number;
+    routingModes: { intelligent: number; flooding: number; inactive: number; noConnections: number };
+    queuedTriages: number;
+    messagesInFlight: number;
+    triagesSeenAtSinks: number;
+  }) => void;
   onConnectionRadiusChange?: (handler: (radius: number) => void) => void;
   onInactiveRoutingTimeoutChange?: (handler: (timeout: number) => void) => void;
   onTriageGenerationIntervalChange?: (handler: (interval: number) => void) => void;
@@ -83,6 +93,12 @@ const SimulationView = ({
           nodeCount: stats.nodeCount,
           connectionCount: stats.connectionCount,
           connectionRadius: model.getConnectionRadius(),
+          sinkCount: stats.sinkCount,
+          sourceCount: stats.sourceCount,
+          routingModes: stats.routingModes,
+          queuedTriages: stats.queuedTriages,
+          messagesInFlight: stats.messagesInFlight,
+          triagesSeenAtSinks: stats.triagesSeenAtSinks,
         });
       }
     });
