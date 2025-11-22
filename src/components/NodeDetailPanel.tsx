@@ -62,28 +62,12 @@ const NodeDetailPanel = ({ nodes, onRemoveNode, onClose }: NodeDetailPanelProps)
                 <span className="detail-label">Triages Seen:</span>
                 <span className="detail-value">{node.triageStore.size}</span>
               </div>
-              <div className="detail-row">
-                <span className="detail-label">ACK Pending:</span>
-                <span className="detail-value" title="Messages awaiting ACK">{Array.from(node.pendingAcks.values()).filter(a => a.status === 'pending').length}</span>
-              </div>
-              {Array.from(node.pendingAcks.values()).some(a => a.status === 'timeout') && (
-                <div className="detail-row">
-                  <span className="detail-label">ACK Timeouts:</span>
-                  <span className="detail-value" style={{ color: '#EF4444', fontWeight: 'bold' }}>{Array.from(node.pendingAcks.values()).filter(a => a.status === 'timeout').length}</span>
-                </div>
-              )}
               {node.triageQueue.length > 0 && (
                 <div className="detail-row">
                   <span className="detail-label">Queued Triages:</span>
                   <span className="detail-value" style={{ color: '#F59E0B', fontWeight: 'bold' }}>
                     {node.triageQueue.length} waiting
                   </span>
-                </div>
-              )}
-              {node.lastSummaryExchange.size > 0 && (
-                <div className="detail-row">
-                  <span className="detail-label">Sync Peers:</span>
-                  <span className="detail-value">{node.lastSummaryExchange.size}</span>
                 </div>
               )}
             </div>
@@ -227,28 +211,6 @@ const NodeDetailPanel = ({ nodes, onRemoveNode, onClose }: NodeDetailPanelProps)
                 </div>
               )}
             </div>
-            {node.pendingAcks.size > 0 && (
-              <div className="node-detail-section">
-                <h3>Pending ACKs</h3>
-                <p className="section-description">Reliability tracking for messages awaiting acknowledgement</p>
-                <div className="pending-acks-list">
-                  {Array.from(node.pendingAcks.values()).map(ack => (
-                    <div key={ack.messageId} className={`pending-ack-item ${ack.status}`}>
-                      <span className="ack-msg-id">{ack.messageId.substring(0, 8)}</span>
-                      <span className="ack-to">→ {ack.toNodeId.substring(0, 8)}</span>
-                      <span className="ack-status" data-status={ack.status}>
-                        {ack.status === 'pending' && '⏳ Pending'}
-                        {ack.status === 'acked' && '✅ Acked'}
-                        {ack.status === 'timeout' && '⚠️ Timeout'}
-                      </span>
-                      <span className="ack-age">
-                        {Math.floor((Date.now() - ack.createdAt) / 1000)}s
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         ))}
       </div>

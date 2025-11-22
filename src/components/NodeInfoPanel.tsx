@@ -94,33 +94,11 @@ const NodeInfoPanel = ({ node, isVisible, isPinned, isInDetailPanel, triageSever
               <span className="stat-label">Triages</span>
               <span className="stat-value">{node.triageStore.size}</span>
             </div>
-            <div className="node-info-stat">
-              <span className="stat-label">ACK Pending</span>
-              <span className="stat-value" title="Unacknowledged messages awaiting ACK">{
-                Array.from(node.pendingAcks.values()).filter(a => a.status === 'pending').length
-              }</span>
-            </div>
-            {Array.from(node.pendingAcks.values()).some(a => a.status === 'timeout') && (
-              <div className="node-info-stat queued">
-                <span className="stat-label">Timeouts</span>
-                <span className="stat-value" style={{ color: '#EF4444' }}>
-                  ⏱ {Array.from(node.pendingAcks.values()).filter(a => a.status === 'timeout').length}
-                </span>
-              </div>
-            )}
             {node.triageQueue.length > 0 && (
               <div className="node-info-stat queued">
                 <span className="stat-label">Queued</span>
                 <span className="stat-value" style={{ color: '#F59E0B' }}>
                   🔔 {node.triageQueue.length}
-                </span>
-              </div>
-            )}
-            {node.lastSummaryExchange.size > 0 && (
-              <div className="node-info-stat">
-                <span className="stat-label">Sync</span>
-                <span className="stat-value" title="Recent subnet sync exchanges">
-                  {node.lastSummaryExchange.size} peers
                 </span>
               </div>
             )}

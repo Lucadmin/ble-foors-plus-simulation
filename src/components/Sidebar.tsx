@@ -25,7 +25,7 @@ const Sidebar = ({
   setIsOpen,
   connectionRadius = 2.0,
   onConnectionRadiusChange,
-  inactiveRoutingTimeout = 5 * 60 * 1000, // Default 5 minutes
+  inactiveRoutingTimeout = 1 * 1000, // Default 1 second
   onInactiveRoutingTimeoutChange,
   triageGenerationInterval = 3000, // Default 3 seconds
   onTriageGenerationIntervalChange,
@@ -56,8 +56,10 @@ const Sidebar = ({
   };
 
   const handleInactiveTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value) * 60 * 1000; // Convert minutes to milliseconds
-    onInactiveRoutingTimeoutChange?.(value);
+    const valueSeconds = parseFloat(e.target.value); // Slider is in seconds
+    const clamped = Math.max(1, Math.min(5 * 60, valueSeconds));
+    const valueMs = clamped * 1000; // Convert seconds to milliseconds
+    onInactiveRoutingTimeoutChange?.(valueMs);
   };
 
   const handleTriageIntervalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,8 +67,9 @@ const Sidebar = ({
     onTriageGenerationIntervalChange?.(value);
   };
 
-  // Convert milliseconds to minutes/seconds for display
-  const inactiveTimeoutMinutes = inactiveRoutingTimeout / (60 * 1000);
+  // Convert milliseconds to seconds/minutes for display
+  const inactiveTimeoutSeconds = inactiveRoutingTimeout / 1000;
+  const inactiveTimeoutMinutes = inactiveTimeoutSeconds / 60;
   const triageIntervalSeconds = triageGenerationInterval / 1000;
 
   return (
@@ -152,17 +155,21 @@ const Sidebar = ({
               </div>
 
               <div className="control-group">
-                <label>Inactive Route Timeout: {inactiveTimeoutMinutes.toFixed(1)} min</label>
+                <label>
+                  Inactive Route Timeout: {inactiveTimeoutSeconds.toFixed(0)} sec
+                  {' '}
+                  ({inactiveTimeoutMinutes.toFixed(1)} min)
+                </label>
                 <input
                   type="range"
-                  value={inactiveTimeoutMinutes}
+                  value={inactiveTimeoutSeconds}
                   onChange={handleInactiveTimeoutChange}
-                  min={0.5}
-                  max={30}
-                  step={0.5}
+                  min={1}
+                  max={5 * 60}
+                  step={1}
                 />
                 <small className="control-hint">
-                  Duration before inactive routing tables are deleted
+                  Duration before inactive routing tables are deleted (1s–5min)
                 </small>
               </div>
 

@@ -25,10 +25,8 @@ export const createNode = (
     connections: new Set<string>(),
     triageStore: new Set<string>(),
     triageQueue: [], // Initialize empty triage queue
-      triageCatalog: new Map(),
-  pendingAcks: new Map(), // Track reliability acknowledgements
+    sentTriagesToSinks: new Map(), // Initialize empty per-sink triage send tracking
     routingTable: new Map(), // Initialize empty routing table
-      lastSummaryExchange: new Map(),
     inactiveRoutingTables: new Map(), // Initialize empty inactive routing tables
     routingState: {
       mode: 'no-connections',

@@ -49,15 +49,11 @@ export interface QueuedTriage {
 }
 
 /**
- * Pending ACK record for a message sent from this node to a peer
+ * Per-sink triage send tracking.
+ * For each triage ID, track which sinks this node has already forwarded it towards.
+ * This is purely "sent" bookkeeping and does not imply delivery.
  */
-export interface PendingAck {
-  messageId: string; // Transport message ID awaiting ACK
-  toNodeId: string; // Peer we sent to (and expect ACK from)
-  createdAt: number; // When the original message was created
-  status: 'pending' | 'acked' | 'timeout';
-  ackedAt?: number; // When ACK was received (if any)
-}
+export type TriageSentMap = Map<string, Set<string>>; // Map<triageId, Set<sinkId>>
 
 export interface Node {
   id: string;
@@ -79,13 +75,8 @@ export interface Node {
   lastMessageReceivedAt?: number; // Timestamp of last message arrival for visual effect
   triageStore: Set<string>; // Set of triage IDs this node has seen (for deduplication)
   triageQueue: QueuedTriage[]; // Queue of triages waiting to be sent when reconnected
-  // Triage catalog: metadata per triage for replay/sync
-  triageCatalog: Map<string, { severity: import('./Message').TriageSeverity; firstSeenAt: number; firstSeenMode: RoutingMode }>;
-  // Link-layer reliability: track pending ACKs for messages sent to neighbors
-  // Map<messageId, PendingAck>
-  pendingAcks: Map<string, PendingAck>;
-  // Sync state: track last summary exchange timestamps per peer
-  lastSummaryExchange: Map<string, number>;
+  // For each triageId, which sink IDs this node has already sent it towards (one or more times)
+  sentTriagesToSinks: TriageSentMap;
   
   // FOORS+ Routing Table: one entry per known sink
   // Map<sinkId, RoutingTableEntry>

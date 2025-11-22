@@ -14,8 +14,7 @@ export class SimulationModel {
   private messages: Message[] = [];
   private listeners: Set<() => void> = new Set();
   private connectionRadius: number = 2.0; // Global default
-  private inactiveRoutingTimeout: number = 5 * 60 * 1000; // 5 minutes default (configurable)
-  private ackTimeoutMs: number = 3000; // 3s to consider an ACK overdue
+  private inactiveRoutingTimeout: number = 1 * 1000; // 1 second default (configurable up to 5 minutes)
   // Removed legacy summary chunk size; kept for backward compat previously. No longer needed.
   
   // Auto-generation state
@@ -151,6 +150,7 @@ export class SimulationModel {
     const node = createNode(x, y, type, this.connectionRadius);
     this.nodes.push(node);
     this.updateConnections();
+    this.updateRoutingTables();
     // Auto-select newly created node if no other node is currently 'pinned'/selected.
     // Selection state is handled in controller; expose a lightweight hint by marking all others unselected.
     const anyCurrentlySelected = this.nodes.some(n => n.selected);
@@ -181,11 +181,17 @@ export class SimulationModel {
   toggleNodeType(id: string): void {
     const node = this.nodes.find(n => n.id === id);
     if (node) {
+      const wasSink = node.type === 'sink';
       node.type = node.type === 'source' ? 'sink' : 'source';
       // Update color based on type
       node.color = node.type === 'sink' 
         ? DEFAULT_NODE_CONFIG.sinkColor 
         : DEFAULT_NODE_CONFIG.sourceColor;
+      // If this node just became a sink, update routing and sync from existing sinks
+      if (!wasSink && node.type === 'sink') {
+        this.updateRoutingTables();
+        this.syncNewSinkFromExistingSinks(node);
+      }
       this.notifyListeners();
     }
   }
@@ -220,6 +226,50 @@ export class SimulationModel {
    */
   clearNodes(): void {
     this.nodes = [];
+    this.notifyListeners();
+  }
+
+  /**
+   * When a new sink joins an already routed network (intelligent mode),
+   * existing sinks send triages that the new sink has not yet seen using
+   * the FOORS+ routing tables (smart paths), not flooding.
+   */
+  private syncNewSinkFromExistingSinks(newSink: Node): void {
+    if (newSink.type !== 'sink') return;
+
+    const existingSinks = this.nodes.filter(n => n.type === 'sink' && n.id !== newSink.id);
+    if (existingSinks.length === 0) return;
+
+    existingSinks.forEach(sink => {
+      // Only sinks that have a route to the new sink participate
+      const routeEntry = sink.routingTable.get(newSink.id);
+      if (!routeEntry || routeEntry.nextHops.size === 0) return;
+
+      sink.triageStore.forEach(triageId => {
+        // Skip triages that the new sink has already seen
+        if (newSink.triageStore.has(triageId)) return;
+
+        const severity: import('../types/Message').TriageSeverity = 'red';
+
+        // Use the routing table to send from this sink towards the new sink
+        routeEntry.nextHops.forEach((_hopCount, nextHopId) => {
+          const message: Message = {
+            id: uuidv4(),
+            fromNodeId: sink.id,
+            toNodeId: nextHopId,
+            progress: 0,
+            speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+            color: DEFAULT_MESSAGE_CONFIG.triageSeverityColors[severity],
+            createdAt: Date.now(),
+            type: 'triage',
+            triageId,
+            triageSeverity: severity,
+          };
+          this.messages.push(message);
+        });
+      });
+    });
+
     this.notifyListeners();
   }
 
@@ -286,60 +336,44 @@ export class SimulationModel {
         });
       }
 
-      // Detect newly formed links for this node and reconcile triages directly
+      // Detect newly formed links for this node and proactively sync triages
       const prev = previousNeighbors.get(node.id) || new Set<string>();
       node.connections.forEach(peerId => {
         if (!prev.has(peerId)) {
           const peer = this.getNode(peerId);
           if (!peer) return;
-          this.reconcileNewLink(node, peer);
+
+          // If this node is in flooding or inactive mode (no usable sink routes),
+          // send any triages it has seen that the peer has not yet seen.
+          if (node.routingState.mode === 'flooding' || node.routingState.mode === 'inactive') {
+            node.triageStore.forEach(triageId => {
+              if (!peer.triageStore.has(triageId)) {
+                const severity: import('../types/Message').TriageSeverity = 'red';
+
+                const message: Message = {
+                  id: uuidv4(),
+                  fromNodeId: node.id,
+                  toNodeId: peer.id,
+                  progress: 0,
+                  speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
+                  color: DEFAULT_MESSAGE_CONFIG.triageSeverityColors[severity],
+                  createdAt: Date.now(),
+                  type: 'triage',
+                  triageId,
+                  triageSeverity: severity,
+                };
+                this.messages.push(message);
+              }
+            });
+
+            this.notifyListeners();
+          }
         }
       });
     });
   }
 
-  /**
-   * Direct link reconciliation: when a new physical link forms between nodes from different subnets.
-   * We exchange missing triages both directions one-hop; routing then carries them to sinks normally.
-   */
-  private reconcileNewLink(a: Node, b: Node): void {
-    const missingForB: string[] = [];
-    a.triageStore.forEach(id => { if (!b.triageStore.has(id)) missingForB.push(id); });
-    const missingForA: string[] = [];
-    b.triageStore.forEach(id => { if (!a.triageStore.has(id)) missingForA.push(id); });
-
-    if (missingForA.length === 0 && missingForB.length === 0) return;
-
-    const replay = (from: Node, to: Node, triageId: string) => {
-      const meta = from.triageCatalog.get(triageId);
-      if (!meta) return;
-      const msg: Message = {
-        id: uuidv4(),
-        fromNodeId: from.id,
-        toNodeId: to.id,
-        progress: 0,
-        speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
-        color: DEFAULT_MESSAGE_CONFIG.triageSeverityColors[meta.severity],
-        createdAt: Date.now(),
-        type: 'triage',
-        triageId,
-        triageSeverity: meta.severity,
-      };
-      this.messages.push(msg);
-      from.pendingAcks.set(msg.id, {
-        messageId: msg.id,
-        toNodeId: to.id,
-        createdAt: msg.createdAt,
-        status: 'pending',
-      });
-    };
-
-    missingForB.forEach(id => replay(a, b, id));
-    missingForA.forEach(id => replay(b, a, id));
-
-    console.log(`[SyncReset] Link ${a.id.substring(0,8)}↔${b.id.substring(0,8)} reconciled: ${missingForB.length} →B, ${missingForA.length} →A triages.`);
-    this.notifyListeners();
-  }
+  // Link reconciliation and per-link ACK-based sync removed; routing alone will propagate triages.
 
   /**
    * Send triage summary from a node to a newly connected neighbor (one hop).
@@ -353,13 +387,6 @@ export class SimulationModel {
    */
   private updateRoutingTables(): void {
     const now = Date.now();
-    // Capture previous routing sinks and modes for sync decisions
-    const previousRouteKeys = new Map<string, Set<string>>();
-    const previousModes = new Map<string, import('../types/Node').RoutingMode>();
-    this.nodes.forEach(n => {
-      previousRouteKeys.set(n.id, new Set(Array.from(n.routingTable.keys())));
-      previousModes.set(n.id, n.routingState.mode);
-    });
     
     // Find all sink nodes
     const sinks = this.nodes.filter(node => node.type === 'sink');
@@ -491,9 +518,9 @@ export class SimulationModel {
     
     // Update routing states for all nodes after routing tables are calculated
     this.updateRoutingStates();
-
-    // Route-based sync disabled: we rely solely on link-boundary exchanges now.
   }
+
+  // Note: replayMissingTriagesToSink helper removed for boundary-only replay.
 
   /**
    * FOORS+ Routing State Update: Calculate routing mode for each node
@@ -501,7 +528,7 @@ export class SimulationModel {
    */
   private updateRoutingStates(): void {
     const now = Date.now();
-    const ROUTE_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const ROUTE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
     
     this.nodes.forEach(node => {
       // Count active and expired routes
@@ -687,10 +714,6 @@ export class SimulationModel {
     // If it's a triage, store it in the node's triage store
     if (messageType === 'triage' && triageId) {
       fromNode.triageStore.add(triageId);
-      // Save metadata for replay/sync
-      if (severity) {
-        fromNode.triageCatalog.set(triageId, { severity, firstSeenAt: Date.now(), firstSeenMode: fromNode.routingState.mode });
-      }
       
       // Queue triage if node has no connections
       if (fromNode.connections.size === 0) {
@@ -706,7 +729,18 @@ export class SimulationModel {
     }
 
     // FOORS+ Routing Logic: Determine which peers to send to
-  const targetPeers = this.selectRoutingTargets(fromNode, fromNodeId, messageType, severity);
+    const targetPeers = this.selectRoutingTargets(fromNode, fromNodeId, messageType, severity);
+
+    // Determine which sinks this send is ultimately targeting (direct or via routing)
+    const sinkIdsForSend = new Set<string>();
+    if (messageType === 'triage' && triageId) {
+      // If this node is itself a sink, include it
+      if (fromNode.type === 'sink') sinkIdsForSend.add(fromNode.id);
+      // Include all sinks currently reachable via routing table
+      fromNode.routingTable.forEach((_entry, sinkId) => {
+        sinkIdsForSend.add(sinkId);
+      });
+    }
 
     // Create messages to selected target peers
     targetPeers.forEach(toNodeId => {
@@ -726,15 +760,14 @@ export class SimulationModel {
         triageSeverity: severity,
       };
       this.messages.push(message);
-      // Track pending ACK on sender node
-      const sender = this.getNode(fromNodeId);
-      if (sender && message.type !== 'ack') {
-        sender.pendingAcks.set(msgId, {
-          messageId: msgId,
-          toNodeId,
-          createdAt: message.createdAt,
-          status: 'pending',
-        });
+      // Mark that we've sent this triage towards the relevant sinks
+      if (messageType === 'triage' && triageId && sinkIdsForSend.size > 0) {
+        let perTriage = fromNode.sentTriagesToSinks.get(triageId);
+        if (!perTriage) {
+          perTriage = new Set<string>();
+          fromNode.sentTriagesToSinks.set(triageId, perTriage);
+        }
+        sinkIdsForSend.forEach(sinkId => perTriage!.add(sinkId));
       }
     });
 
@@ -824,7 +857,7 @@ export class SimulationModel {
     if (node.routingState.mode === 'intelligent') {
       // FOORS+ Intelligent Routing: Forward only to next hops from routing tables
       const now = Date.now();
-      const ROUTE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+      const ROUTE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
       // Collect coverage: neighbor -> set of sinks reachable via active routes
       const neighborCoverage = new Map<string, Set<string>>();
@@ -938,20 +971,6 @@ export class SimulationModel {
 
     // Remove completed messages (progress >= 1)
     this.messages = this.messages.filter(message => message.progress < 1);
-
-    // Check for ACK timeouts
-    const now = Date.now();
-    this.nodes.forEach(node => {
-      node.pendingAcks.forEach((ack, key) => {
-        if (ack.status === 'pending' && now - ack.createdAt > this.ackTimeoutMs) {
-          ack.status = 'timeout';
-        }
-        // Optional cleanup: remove acked entries after a short retention
-        if (ack.status === 'acked' && ack.ackedAt && now - ack.ackedAt > 1500) {
-          node.pendingAcks.delete(key);
-        }
-      });
-    });
   }
 
   /**
@@ -966,19 +985,6 @@ export class SimulationModel {
     // Set timestamp for visual effect
     node.lastMessageReceivedAt = Date.now();
 
-    // Handle ACK messages: update pending status on this node and stop propagation
-    if (message.type === 'ack' && message.ackForMessageId) {
-      const pending = node.pendingAcks.get(message.ackForMessageId);
-      if (pending && pending.status === 'pending') {
-        pending.status = 'acked';
-        pending.ackedAt = Date.now();
-      }
-      // Do not forward ACKs
-      return;
-    }
-
-    // Summary/request control-plane removed.
-    
     // Handle triage messages with deduplication
     if (message.type === 'triage' && message.triageId) {
       // Check if we've already seen this triage
@@ -989,9 +995,6 @@ export class SimulationModel {
       
       // New triage - store it
       node.triageStore.add(message.triageId);
-      if (message.triageSeverity) {
-        node.triageCatalog.set(message.triageId, { severity: message.triageSeverity, firstSeenAt: Date.now(), firstSeenMode: node.routingState.mode });
-      }
       
       // If node has no connections, queue the triage for later
       if (node.connections.size === 0) {
@@ -1006,34 +1009,25 @@ export class SimulationModel {
       }
     }
     
-    // Send link-layer ACK back to immediate sender (one-hop)
-    if (message.fromNodeId !== node.id) {
-      const ackMessage: Message = {
-        id: uuidv4(),
-        fromNodeId: node.id,
-        toNodeId: message.fromNodeId,
-        progress: 0,
-        speed: DEFAULT_MESSAGE_CONFIG.defaultSpeed,
-        color: DEFAULT_MESSAGE_CONFIG.ackColor,
-        createdAt: Date.now(),
-        type: 'ack',
-        ackForMessageId: message.id,
-      };
-      this.messages.push(ackMessage);
-      // Note: We do not track pendingAcks for ACKs themselves
-    }
-
     // FOORS+ Routing Logic: All nodes (sources and sinks) can forward
     // Sinks act as routers too: they forward intelligently or flood based on routing state
     {
       // Select routing targets using FOORS+ algorithm (exclude sender to avoid loops)
       const targetPeers = this.selectRoutingTargets(node, message.fromNodeId, message.type, message.triageSeverity);
-      
-      // Forward to selected peers (only for data-plane messages)
+
+      // For triages, determine sinks this forward is aimed at from this node's perspective
+      const sinkIdsForForward = new Set<string>();
+      if (message.type === 'triage' && message.triageId) {
+        if (node.type === 'sink') sinkIdsForForward.add(node.id);
+        node.routingTable.forEach((_entry, sinkId) => {
+          sinkIdsForForward.add(sinkId);
+        });
+      }
+
+      // Forward to selected peers
       targetPeers.forEach(toNodeId => {
-        const fwdId = uuidv4();
         const forwardedMessage: Message = {
-          id: fwdId,
+          id: uuidv4(),
           fromNodeId: node.id,
           toNodeId,
           progress: 0,
@@ -1045,17 +1039,18 @@ export class SimulationModel {
           triageSeverity: message.triageSeverity,
         };
         this.messages.push(forwardedMessage);
-        // Track pending ACK for forwarded message
-        if (forwardedMessage.type !== 'ack') {
-          node.pendingAcks.set(fwdId, {
-            messageId: fwdId,
-            toNodeId,
-            createdAt: forwardedMessage.createdAt,
-            status: 'pending',
-          });
+
+        // Mark that this node has forwarded this triage towards these sinks
+        if (message.type === 'triage' && message.triageId && sinkIdsForForward.size > 0) {
+          let perTriage = node.sentTriagesToSinks.get(message.triageId);
+          if (!perTriage) {
+            perTriage = new Set<string>();
+            node.sentTriagesToSinks.set(message.triageId, perTriage);
+          }
+          sinkIdsForForward.forEach(sinkId => perTriage!.add(sinkId));
         }
       });
-      
+
       this.notifyListeners();
     }
 

@@ -1,7 +1,7 @@
 /**
  * Message types
  */
-export type MessageType = 'triage' | 'normal' | 'ack';
+export type MessageType = 'triage' | 'normal';
 
 /**
  * Triage severity levels (black is most severe)
@@ -22,9 +22,6 @@ export interface Message {
   type: MessageType; // Type of message
   triageId?: string; // Unique identifier for triage content (used for deduplication)
   triageSeverity?: TriageSeverity; // Severity for triage messages
-  // ACK-specific: identifies which transport message this ACK is acknowledging
-  ackForMessageId?: string;
-  // Removed legacy summary/request fields from previous sync design.
 }
 
 export const DEFAULT_MESSAGE_CONFIG = {
@@ -39,7 +36,5 @@ export const DEFAULT_MESSAGE_CONFIG = {
     yellow: '#F59E0B', // Amber-500
     red: '#EF4444',    // Red-500
   } as Record<TriageSeverity, string>,
-  // ACK message color
-  ackColor: '#6B7280', // Gray-500, less visually prominent
   messageRadius: 0.15,
 };
