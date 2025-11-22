@@ -138,11 +138,6 @@ const Sidebar = ({
               <h3>Simulation Controls</h3>
 
               <div className="control-group">
-                <label>Number of Nodes</label>
-                <input type="number" defaultValue={10} min={1} max={100} />
-              </div>
-
-              <div className="control-group">
                 <label>Connection Range: {connectionRadius.toFixed(1)}</label>
                 <input
                   type="range"
