@@ -395,13 +395,15 @@ export class SimulationModel {
           // boundary. Uses sentTriagesToSinks to avoid repeated seeding.
           const reachableSinksFromPeer = Array.from(peer.routingTable.keys());
           if (reachableSinksFromPeer.length > 0 && node.triageStore.size > 0) {
+            let seededAny = false;
             node.triageStore.forEach(triageId => {
-              // For this triage, find if there is at least one sink S reachable
-              // from the peer that this node has not yet marked as sent towards.
               const perTriage = node.sentTriagesToSinks.get(triageId);
-              const hasNewSinkTarget = reachableSinksFromPeer.some(sinkId => !perTriage || !perTriage.has(sinkId));
-              if (!hasNewSinkTarget) return;
+              // Determine exactly which sinks reachable from the peer are new targets
+              const newSinkTargets = reachableSinksFromPeer.filter(sinkId => !perTriage || !perTriage.has(sinkId));
+              if (newSinkTargets.length === 0) return;
 
+              // Send triage along this new boundary once, letting normal routing
+              // take it to all sinks in newSinkTargets downstream.
               if (!peer.triageStore.has(triageId)) {
                 const severity: import('../types/Message').TriageSeverity = 'red';
 
@@ -418,19 +420,21 @@ export class SimulationModel {
                   triageSeverity: severity,
                 };
                 this.messages.push(message);
+                seededAny = true;
               }
 
-              // Mark all peer-reachable sinks as now having been targeted
-              // from this node for this triage, so we don't reseed later.
+              // Mark only the newly discovered sink targets as now having been
+              // targeted from this node for this triage, so moves into other
+              // smart subnets with different sinks still work.
               let per = node.sentTriagesToSinks.get(triageId);
               if (!per) {
                 per = new Set<string>();
                 node.sentTriagesToSinks.set(triageId, per);
               }
-              reachableSinksFromPeer.forEach(sinkId => per!.add(sinkId));
+              newSinkTargets.forEach(sinkId => per!.add(sinkId));
             });
 
-            if (this.messages.length > 0) {
+            if (seededAny) {
               this.notifyListeners();
             }
           }
